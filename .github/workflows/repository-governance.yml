@@ -1,0 +1,93 @@
+name: Repository governance
+on:
+  pull_request_target:
+    branches: [develop, staging, main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  workflow_run:
+    workflows: ['*']
+    types: [completed]
+  status:
+  workflow_dispatch:
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+  statuses: write
+concurrency:
+  group: repository-governance
+  cancel-in-progress: false
+jobs:
+  policy:
+    if: >-
+      (github.event_name != 'workflow_run' || github.event.workflow_run.name != 'Repository governance') &&
+      (github.event_name != 'status' || github.event.context != 'Repository policy')
+    name: Evaluate repository policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # No checkout or execution of pull request code with this privileged token.
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const OWNER = 'minkgkyaw9899';
+            function evaluate(pr, reviews, checks, statuses) {
+              const failures = [];
+              const base = pr.base.ref;
+              const head = pr.head.ref;
+              const sameRepo = pr.head.repo?.full_name === pr.base.repo.full_name;
+              const feature = /^feat\/.+/.test(head);
+              const hotfix = /^hotfix\/.+/.test(head);
+              const allowed = (base === 'develop' && feature) ||
+                (sameRepo && base === 'staging' && head === 'develop') ||
+                (sameRepo && base === 'main' && head === 'staging') ||
+                (hotfix && ['staging', 'main'].includes(base));
+              if (!allowed) failures.push('Use feat/* -> develop -> staging -> main, or hotfix/* -> staging/main.');
+              if (pr.user.login !== OWNER) {
+                const decisive = reviews.filter(r => r.user.login === OWNER &&
+                  ['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(r.state))
+                  .sort((a, b) => a.id - b.id).at(-1);
+                if (decisive?.state !== 'APPROVED' || decisive.commit_id !== pr.head.sha) {
+                  failures.push('The current head needs approval from @' + OWNER + '.');
+                }
+              }
+              for (const name of ['Code quality', 'Coverage >85%']) {
+                if (!checks.some(c => c.name === name && c.status === 'completed' && c.conclusion === 'success' && c.app?.slug === 'github-actions')) {
+                  failures.push('Missing successful required CI check: ' + name);
+                }
+              }
+              // Do not include this workflow itself: it publishes the aggregate policy status.
+              for (const c of checks.filter(c => c.name !== 'Evaluate repository policy')) {
+                if (c.status !== 'completed' || c.conclusion !== 'success') failures.push('Check not successful: ' + c.name);
+              }
+              const latest = new Map();
+              for (const s of [...statuses].sort((a, b) => a.id - b.id)) latest.set(s.context, s);
+              for (const s of latest.values()) {
+                if (s.context !== 'Repository policy' && s.state !== 'success') failures.push('Status not successful: ' + s.context);
+              }
+              return failures;
+            }
+            
+            
+            const params = context.repo;
+            const prs = context.payload.pull_request ? [context.payload.pull_request] :
+              await github.paginate(github.rest.pulls.list, {...params, state: 'open', per_page: 100});
+            for (const candidate of prs) {
+              const { data: pr } = await github.rest.pulls.get({...params, pull_number: candidate.number});
+              if (pr.state !== 'open' || !['develop', 'staging', 'main'].includes(pr.base.ref)) continue;
+              const refs = [...new Set([pr.head.sha, pr.merge_commit_sha].filter(Boolean))];
+              const reviews = await github.paginate(github.rest.pulls.listReviews, {...params, pull_number: pr.number, per_page: 100});
+              const checks = [];
+              const statuses = [];
+              for (const ref of refs) {
+                checks.push(...await github.paginate(github.rest.checks.listForRef, {...params, ref, per_page: 100}));
+                statuses.push(...await github.paginate(github.rest.repos.listCommitStatusesForRef, {...params, ref, per_page: 100}));
+              }
+              const failures = evaluate(pr, reviews, checks, statuses);
+              const {data: current} = await github.rest.pulls.get({...params, pull_number: pr.number});
+              if (current.head.sha !== pr.head.sha || current.base.ref !== pr.base.ref) continue;
+              await github.rest.repos.createCommitStatus({ ...params, sha: pr.head.sha,
+                context: 'Repository policy', state: failures.length ? 'failure' : 'success',
+                description: failures.length ? failures[0].slice(0,140) : 'Branch flow, authorized approval and all reported checks passed.',
+                target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}` });
+              core.info(`PR #${pr.number}: ${failures.length ? failures.join(' | ') : 'passed'}`);
+            }
