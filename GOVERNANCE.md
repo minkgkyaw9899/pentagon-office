@@ -36,18 +36,22 @@ The repository owner authorized a one-time governance bootstrap on `main`, follo
 
 ## Release tags
 
-Use **Actions -> Release tag -> Run workflow**, select the delivery branch, and enter a plain semantic version such as `1.2.3`:
+The base release version is stored in the root `VERSION` file, initially `0.1.0`. Change it through a feature PR and promote the same version through delivery branches.
 
-| Branch | Tag |
+After a PR merge into a delivery branch, tags are generated automatically once application quality/coverage and every reported check/status on the resulting commit have succeeded:
+
+| Branch | Tag sequence for VERSION 0.1.0 |
 | --- | --- |
-| `develop` | `v1.2.3-alpha` |
-| `staging` | `v1.2.3-beta` |
-| `main` | `v1.2.3` |
+| `develop` | `v0.1.0-alpha.1`, `v0.1.0-alpha.2`, ... |
+| `staging` | `v0.1.0-beta.1`, `v0.1.0-beta.2`, ... |
+| `main` | `v0.1.0` |
 
-This is an explicit release action, not a tag on every merge. The repository has no application version manifest yet, so the release version is an input. Only stable `X.Y.Z` inputs are accepted; the workflow adds the prefix and branch suffix. No initial release version is assumed.
+Alpha and beta counters are independent for each base version. The next number is one above the highest matching existing tag, compared numerically. Reruns for a commit already tagged in that channel reuse the existing tag. Stable tags never move: bump `VERSION` before a subsequent stable release. A main hotfix therefore needs its own patch version bump, such as `0.1.1`.
 
-The workflow tags the selected delivery branch's dispatch commit only if it is still the current branch head. Application `Code quality` and `Coverage >85%` checks must have succeeded at that commit; all other reported checks/statuses must also be successful. No quality results are fabricated. PR checks alone do not satisfy checks on a different post-merge commit: application CI needs push triggers on all delivery branches.
+The workflow starts on delivery-branch pushes and reevaluates readiness when push CI workflows finish or commit statuses change. Incomplete or failed checks create no release tag. Only a completed PR merge commit at the current delivery branch tip is eligible. If the branch advances before a pending release is ready, that older commit is skipped; the current tip is considered on its own push/CI events. This deliberately avoids issuing delayed releases for superseded commits.
 
-Tags are immutable: a retry for a tag already pointing to the same commit succeeds without changes; reusing the same tag for a different commit fails. Release tag protections also prohibit updates and deletion of `v[0-9]*` tags. Repeated alpha/beta releases require a new version under this exact-name convention; numbered prereleases can be introduced separately if needed. No GitHub Release object or package publication is created. Tags created with `GITHUB_TOKEN` do not trigger downstream tag-push workflows.
+Application `Code quality` and `Coverage >85%` checks must run on delivery-branch pushes, because PR checks on a different commit do not prove the post-merge commit. The workflow reads `VERSION` at the exact candidate SHA using the GitHub API; it never checks out or executes PR code. Same-branch release runs are serialized. No GitHub Release object or package publication is created. GITHUB_TOKEN-created tags do not trigger downstream tag-push workflows.
 
-The release workflow becomes available for dispatch after it reaches the default branch through the normal promotion PRs. The existing application CI/Code Quality/CodeQL blockers must be resolved before those PRs can merge or release tags can be created.
+Version tags matching `v[0-9]*` are protected against updates/deletion. An optional **Actions -> Release tags -> Run workflow** retries the selected delivery branch using the committed VERSION; it does not accept an arbitrary version override.
+
+The workflow must reach the default branch through promotion PRs for CI-completion/status callbacks to activate. The existing application CI/Code Quality/CodeQL blockers must be resolved before promotion PRs can merge or release tags can be created. No passing application results or release tags are fabricated during setup.
