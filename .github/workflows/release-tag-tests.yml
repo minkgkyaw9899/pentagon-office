@@ -1,0 +1,16 @@
+name: Release tag tests
+on:
+  pull_request:
+    branches: [develop, staging, main]
+  push:
+    branches: [develop, staging, main]
+permissions:
+  contents: read
+jobs:
+  test:
+    name: Release tag tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - run: node --test .github/scripts/release-tag.test.cjs .github/scripts/release-runtime.test.cjs

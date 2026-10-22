@@ -1,0 +1,13 @@
+{
+  "name": "pentagon-office-governance",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "lint": "eslint .github/scripts eslint.config.cjs && node .github/scripts/sync-release-workflow.cjs --check",
+    "test": "node --test .github/scripts/*.test.cjs",
+    "coverage": "node .github/scripts/run-coverage.cjs"
+  },
+  "devDependencies": {
+    "eslint": "10.13.0"
+  }
+}

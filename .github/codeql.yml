@@ -1,0 +1,5 @@
+name: Repository automation
+paths:
+  - .github/scripts
+paths-ignore:
+  - '**/*.test.cjs'
