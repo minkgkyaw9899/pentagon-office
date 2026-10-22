@@ -1,0 +1,78 @@
+name: Release tag
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version X.Y.Z (without v, alpha, or beta)'
+        required: true
+        type: string
+permissions:
+  contents: write
+  checks: read
+  statuses: read
+concurrency:
+  group: release-tag-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  tag:
+    name: Create release tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        with:
+          script: |
+            function releaseTag(branch, version) {
+              if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) {
+                throw new Error('Version must be X.Y.Z without a prefix, suffix, or leading zeroes.');
+              }
+              const suffix = { develop: '-alpha', staging: '-beta', main: '' };
+              if (!Object.hasOwn(suffix, branch)) throw new Error('Release tags require develop, staging, or main.');
+              return `v${version}${suffix[branch]}`;
+            }
+            
+            
+            if (context.ref !== `refs/heads/${context.ref.replace('refs/heads/', '')}`) {
+              throw new Error('Select a delivery branch, not a tag.');
+            }
+            const branch = context.ref.slice('refs/heads/'.length);
+            const tag = releaseTag(branch, process.env.RELEASE_VERSION);
+            const sha = context.sha;
+            const params = context.repo;
+            const {data: tip} = await github.rest.git.getRef({...params, ref: `heads/${branch}`});
+            if (tip.object.sha !== sha) throw new Error('Branch moved. Rerun the release against its current head.');
+            const checks = await github.paginate(github.rest.checks.listForRef, {...params, ref: sha, per_page: 100});
+            for (const name of ['Code quality', 'Coverage >85%']) {
+              if (!checks.some(c => c.name === name && c.status === 'completed' && c.conclusion === 'success' && c.app?.slug === 'github-actions')) {
+                throw new Error(`Release blocked: missing successful ${name} check on ${sha}.`);
+              }
+            }
+            for (const check of checks.filter(c => c.name !== 'Create release tag')) {
+              if (check.status !== 'completed' || check.conclusion !== 'success') throw new Error(`Release blocked: ${check.name} is not successful.`);
+            }
+            const statuses = await github.paginate(github.rest.repos.listCommitStatusesForRef, {...params, ref: sha, per_page: 100});
+            const latest = new Map();
+            for (const status of [...statuses].sort((a,b) => a.id-b.id)) latest.set(status.context, status);
+            for (const status of latest.values()) {
+              if (status.state !== 'success') throw new Error(`Release blocked: ${status.context} is ${status.state}.`);
+            }
+            let existing;
+            try {
+              existing = (await github.rest.git.getRef({...params, ref: `tags/${tag}`})).data.object;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            if (existing) {
+              while (existing.type === 'tag') existing = (await github.rest.git.getTag({...params, tag_sha: existing.sha})).data.object;
+              if (existing.type !== 'commit' || existing.sha !== sha) throw new Error(`${tag} already identifies another commit. Choose a new version.`);
+              core.notice(`${tag} already identifies ${sha}; no change needed.`);
+            } else {
+              await github.rest.git.createRef({...params, ref: `refs/tags/${tag}`, sha});
+              core.notice(`Created ${tag} at ${sha}.`);
+            }
+            await core.summary.addHeading('Release tag').addTable([
+              [{data:'Branch',header:true},{data:'Tag',header:true},{data:'Commit',header:true}],
+              [branch,tag,sha]
+            ]).write();
