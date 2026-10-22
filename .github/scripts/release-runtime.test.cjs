@@ -1,11 +1,5 @@
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const yamlPath = fs.existsSync(path.join(__dirname,'../workflows/release-tag.yml'))
-  ? path.join(__dirname,'../workflows/release-tag.yml') : path.join(__dirname,'release-tag.yml');
-const script = fs.readFileSync(yamlPath,'utf8').split('          script: |\n')[1]
-  .split('\n').map(line=>line.slice(12)).join('\n');
-const run = new (Object.getPrototypeOf(async function(){}).constructor)('github','context','core',script);
+const run = require('./release-runtime.cjs');
 const required = ['Code quality','Coverage >85%'].map(name=>({name,status:'completed',conclusion:'success',app:{slug:'github-actions'}}));
 function fixture(options={}) {
   const writes=[], notices=[];

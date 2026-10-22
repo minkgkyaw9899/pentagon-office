@@ -19,20 +19,20 @@ The governance workflow runs trusted base/default-branch code without checking o
 All three delivery branches require these GitHub Actions checks:
 
 - `Repository policy`: allowed branch route, authorized approval, and all reported checks successful.
-- `Code quality`: the application CI must run its real lint, type and quality gates under this exact job name.
-- `Coverage >85%`: the application CI must run real tests and fail unless measured line coverage is strictly greater than 85 percent. Missing coverage, empty coverage, failed tests and failed coverage uploads must fail this job.
+- `Code quality`: ESLint checks the repository automation JavaScript, actionlint checks all workflows, and the generated release workflow must match the tested production modules. Application lint/type gates must be added when application code exists.
+- `Coverage >85%`: real tests measure the release production modules using Node V8 coverage, excluding test files. Every discovered release production module must appear in the LCOV report. The job enforces a minimum of 85.01% line coverage, checks that measured coverage is strictly greater than 85%, and saves the report as an artifact. Failed tests, missing sources/reports, and failed artifact uploads fail the job. This is coverage of current release automation, not coverage of a future application; expand the source scope and test tooling when application code is added.
 
-CodeQL results are required with no outstanding code scanning alerts. CodeQL default setup is enabled. GitHub may wait to run analysis until supported application source exists.
+CodeQL results are required with no outstanding code scanning alerts. Advanced CodeQL analysis scans `.github/scripts` as JavaScript/TypeScript on PRs and protected-branch pushes. Bundled skill examples are outside this scan scope. The previously failing default setup is disabled so it does not conflict with the committed advanced workflow.
 
 Copilot automatic reviews target `staging` and `main`, including new pushes, excluding drafts. Review requests depend on GitHub Copilot eligibility and available credits. Copilot is not an authorized substitute for the owner's human approval.
 
 ## Bootstrap limitations
 
-The initial repository contains skills and documentation, with no application, test suite or build manifest. Therefore no application quality/coverage checks are fabricated. Required application CI checks intentionally remain missing and prevent merges until real CI is added. No claim of 85 percent coverage has been made.
+The initial repository had only skills and documentation. This PR adds real CI for the release automation it introduces: lint/workflow validation, 54 behavioral cases, and measured production-source coverage. Both quality jobs run on PRs and delivery-branch pushes. No future application coverage is claimed.
 
 GitHub's native Code Quality setup API currently returns `Code quality is not available for this repository`. Native Code Quality and coverage rules, if accepted by the rules API, still need this feature enabled and actual coverage uploads before they can evaluate application changes. The required `Coverage >85%` CI gate must wait for the coverage upload; native coverage rules alone do not wait for reports. GitHub documents native Code Quality as requiring GitHub Team or Enterprise Cloud.
 
-The repository owner authorized a one-time governance bootstrap on `main`, followed by creation/protection of `develop` and `staging`. Future changes follow the PR flow above. Since the required application gates have no producers yet, enabling the first application CI may need a deliberate owner-managed bootstrap; do not disable protections or invent passing results to conceal that limitation.
+The repository owner authorized a one-time governance bootstrap on `main`, followed by creation/protection of `develop` and `staging`. Future changes follow the PR flow above. The native Code Quality entitlement remains a separate prerequisite; passing Actions checks do not activate that GitHub feature.
 
 ## Release tags
 
@@ -54,4 +54,4 @@ Application `Code quality` and `Coverage >85%` checks must run on delivery-branc
 
 Version tags matching `v[0-9]*` are protected against updates/deletion. An optional **Actions -> Release tags -> Run workflow** retries the selected delivery branch using the committed VERSION; it does not accept an arbitrary version override.
 
-The workflow must reach the default branch through promotion PRs for CI-completion/status callbacks to activate. The existing application CI/Code Quality/CodeQL blockers must be resolved before promotion PRs can merge or release tags can be created. No passing application results or release tags are fabricated during setup.
+The workflow must reach the default branch through promotion PRs for CI-completion/status callbacks to activate. Passing real quality/coverage and CodeQL results are required; native Code Quality availability remains a separate repository prerequisite. No release tags are fabricated during setup.
